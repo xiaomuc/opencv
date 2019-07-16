@@ -159,7 +159,7 @@ scan_known_faces('./known_face/')
 print(known_face_names)
 
 
-# In[ ]:
+# In[103]:
 
 
 def calc_resize(image):
