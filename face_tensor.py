@@ -3,7 +3,7 @@
 
 # # face detection using Tensorflow
 
-# In[102]:
+# In[1]:
 
 
 import sys
@@ -52,82 +52,7 @@ def load_image_into_numpy_array(image):
     return np.array(image.getdata()).reshape((im_height,im_width, 3)).astype(np.uint8)
 
 
-# In[11]:
-
-
-cap = cv2.VideoCapture('./gassou_30sec_large.mp4')
-width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-fps = cap.get(cv2.CAP_PROP_FPS)
-interval,time_wait = fn.getInterval(fps)
-out = None
-print('w:',width,'h:',height)
-
-detection_graph = tf.Graph()
-with detection_graph.as_default():
-    od_graph_def = tf.GraphDef()
-    with tf.gfile.GFile(PATH_TO_CKPT,'rb') as fid:
-        serialized_graph = fid.read()
-        od_graph_def.ParseFromString(serialized_graph)
-        tf.import_graph_def(od_graph_def, name='')
-        
-with detection_graph.as_default():
-    config = tf.ConfigProto()
-    config.gpu_options.allow_growth = True
-    with tf.Session(graph=detection_graph, config=config) as sess:
-        frame_num = 1490
-        while frame_num:
-            frame_num-=1
-            ret, image = cap.read()
-            if ret == 0:
-                break
-            if out is None:
-                #[h,w] = image.shape[:2]
-                fourcc = cv2.VideoWriter_fourcc(*'DIVX')
-                #out = cv2.VideoWriter("./media/test_out.avi", 0,25.0, (w,h))
-                out = cv2.VideoWriter("./media/test_out.avi", fourcc, fps, (width, height))
-
-            image_np = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            
-            image_np_expanded = np.expand_dims(image_np,axis=0)
-            image_tensor = detection_graph.get_tensor_by_name('image_tensor:0')
-            
-            boxes = detection_graph.get_tensor_by_name('detection_boxes:0')
-            
-            scores = detection_graph.get_tensor_by_name('detection_scores:0')
-            classes = detection_graph.get_tensor_by_name('detection_classes:0')
-            num_detections = detection_graph.get_tensor_by_name('num_detections:0')
-            
-            start_time = time.time()
-            (boxes, scores, classes, num_detections) = sess.run(
-                [boxes,scores,classes,num_detections],
-                feed_dict={image_tensor: image_np_expanded}
-            )
-            elapsed_time = time.time() - start_time
-            #print('inteference time cost: {}'.format(elapsed_time))
-            
-            vis_util.visualize_boxes_and_labels_on_image_array(
-                image,
-                np.squeeze(boxes),
-                np.squeeze(classes).astype(np.int32),
-                np.squeeze(scores),
-                category_index,
-                use_normalized_coordinates=True,
-                line_thickness=2
-            )
-            out.write(image)
-            image=cv2.resize(image,(960,540))
-            cv2.imshow("detect_by_tensorflow",image)
-            k=cv2.waitKey(time_wait) & 0xFF
-            if k==27:
-                break;
-
-        cv2.destroyAllWindows()
-        cap.release()
-        out.release()
-
-
-# In[71]:
+# In[2]:
 
 
 import face_recognition
@@ -159,19 +84,28 @@ scan_known_faces('./known_face/')
 print(known_face_names)
 
 
-# In[103]:
+# In[28]:
 
 
-def calc_resize(image):
-    im_height,im_width = image.shape[:2]
+font = cv2.FONT_HERSHEY_PLAIN
+font_scale = 1.2
+thickness = 2
+
+def calc_resize(image,size=None):
+    if size is None:
+        im_height,im_width = image.shape[:2]
+    else:
+        (im_width,im_height) = size
     print('w',im_width,'h',im_height)
     if im_height>disp_height or im_width>disp_width:
-        r =min(disp_height/im_height,disp_width/im_width)
-        print('r',r)
-        im_height=int(im_height*r)
-        im_width=int(im_width*r)
+        ratio =min(disp_height/im_height,disp_width/im_width)
+        print('r',ratio)
+        im_height=int(im_height*ratio)
+        im_width=int(im_width*ratio)
+    else:
+        ratio=1
     print('w',im_width,'h',im_height)
-    return (im_width,im_height)
+    return (im_width,im_height),ratio
 
 def recognize(image,face_locations,threshold=0.6):
     face_names=[]
@@ -179,7 +113,7 @@ def recognize(image,face_locations,threshold=0.6):
     face_encodings = face_recognition.face_encodings(image,face_locations)
     for face_encoding in face_encodings:
         matches = face_recognition.compare_faces(known_face_encodings,face_encoding)
-        name = 'known'
+        name = 'unknown'
         
         face_distance = face_recognition.face_distance(known_face_encodings,face_encoding)
         best_match_index = np.argmin(face_distance)
@@ -221,74 +155,110 @@ def boxes_to_face_locations(boxes,scores,image_height,image_width,threshold=0.7)
     #print('face_locations',len(face_locations))
     return face_locations
 
+def resize_showimage(in_image,face_locations,face_names,size=None,ratio=None):
+    if ratio is None or size is None:
+        size,ratio = calc_resize(image)
+    print(size,ratio)
+    image=cv2.resize(in_image,size)
+    b_bgr=name_to_bgr('blue')
+    w_bgr=name_to_bgr('white')
+    r_bgr=name_to_bgr('red')
+    for i in range(len(face_locations)):
+        face_location=face_locations[i]
+        (top,right,bottom,left)=face_location;
+        top = int(top*ratio)
+        right=int(right*ratio)
+        bottom=int(bottom*ratio)
+        left=int(left*ratio)
+        name=face_names[i]
+        if name == 'Toma':
+            col=r_bgr
+        else:
+            col=b_bgr
+        image=cv2.resize(image,size)
+        cv2.rectangle(image, (left,top), (right,bottom), col,thickness)
+        text_size = cv2.getTextSize(name, font, font_scale, thickness)
+        text_width = text_size[0][0]
+        text_height = text_size[0][1]
+        
+        cv2.rectangle(image, (left, bottom), (left+text_width+thickness, bottom+text_height+thickness), col, cv2.FILLED)
+        cv2.putText(image, name, (left,bottom + text_height), font,font_scale, w_bgr, thickness)
+    return image
+
+
+# In[ ]:
+
+
+def detect(image,detection_graph,sess):
+    image_np = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            
+    image_np_expanded = np.expand_dims(image_np,axis=0)
+    image_tensor = detection_graph.get_tensor_by_name('image_tensor:0')
+            
+    boxes = detection_graph.get_tensor_by_name('detection_boxes:0')
+    scores = detection_graph.get_tensor_by_name('detection_scores:0')
+    classes = detection_graph.get_tensor_by_name('detection_classes:0')
+    num_detections = detection_graph.get_tensor_by_name('num_detections:0')
+    start_time = time.time()
+    (boxes, scores, classes, num_detections) = sess.run(
+        [boxes,scores,classes,num_detections],
+        feed_dict={image_tensor: image_np_expanded}
+    )
+    elapsed_time = time.time() - start_time
+    print('inteference time cost: {}'.format(elapsed_time))
+    boxes=np.squeeze(boxes)
+    scores=np.squeeze(scores)
+    classes=np.squeeze(classes)
+    im_height,im_width = image.shape[:2]
+            
+    face_locations = boxes_to_face_locations(boxes,scores,im_height,im_width)
+    #face_names=recognize(image,face_locations)
+    #image=resize_showimage(image,face_locations,face_names)
+    return face_locations
+
+
 def detect_face_tf(image):
-    font = cv2.FONT_HERSHEY_PLAIN
-    font_scale = 1.2
-    thickness = 2
     detection_graph=get_detection_graph()
     with detection_graph.as_default():
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
         with tf.Session(graph=detection_graph, config=config) as sess:
-            image_np = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            #image_np = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             
-            image_np_expanded = np.expand_dims(image_np,axis=0)
-            image_tensor = detection_graph.get_tensor_by_name('image_tensor:0')
+            #image_np_expanded = np.expand_dims(image_np,axis=0)
+            #image_tensor = detection_graph.get_tensor_by_name('image_tensor:0')
             
-            boxes = detection_graph.get_tensor_by_name('detection_boxes:0')
-            scores = detection_graph.get_tensor_by_name('detection_scores:0')
-            classes = detection_graph.get_tensor_by_name('detection_classes:0')
-            num_detections = detection_graph.get_tensor_by_name('num_detections:0')
-            start_time = time.time()
-            (boxes, scores, classes, num_detections) = sess.run(
-                [boxes,scores,classes,num_detections],
-                feed_dict={image_tensor: image_np_expanded}
-            )
-            elapsed_time = time.time() - start_time
-            print('inteference time cost: {}'.format(elapsed_time))
-            # vis_util.visualize_boxes_and_labels_on_image_array(
-            #    image,
-            #    np.squeeze(boxes),
-            #    np.squeeze(classes).astype(np.int32),
-            #    np.squeeze(scores),
-            #    category_index,
-            #    use_normalized_coordinates=True,
-            #    line_thickness=2
+            #boxes = detection_graph.get_tensor_by_name('detection_boxes:0')
+            #scores = detection_graph.get_tensor_by_name('detection_scores:0')
+            #classes = detection_graph.get_tensor_by_name('detection_classes:0')
+            #num_detections = detection_graph.get_tensor_by_name('num_detections:0')
+            #start_time = time.time()
+            #(boxes, scores, classes, num_detections) = sess.run(
+            #    [boxes,scores,classes,num_detections],
+            #    feed_dict={image_tensor: image_np_expanded}
             #)
-            boxes=np.squeeze(boxes)
-            scores=np.squeeze(scores)
-            classes=np.squeeze(classes)
-            im_height,im_width = image.shape[:2]
+            #elapsed_time = time.time() - start_time
+            #print('inteference time cost: {}'.format(elapsed_time))
+            #boxes=np.squeeze(boxes)
+            #scores=np.squeeze(scores)
+            #classes=np.squeeze(classes)
+            #im_height,im_width = image.shape[:2]
             
-            face_locations = boxes_to_face_locations(boxes,scores,im_height,im_width)
+            #face_locations = boxes_to_face_locations(boxes,scores,im_height,im_width)
+            face_locations = detect(image,detection_graph,sess)
             face_names=recognize(image,face_locations)
-            for i in range(len(face_locations)):
-            #for i in range(len(boxes)):
-                face_location=face_locations[i]
-                #class_name = category_index[classes[i]]['name']
-                
-                #print('box:',boxes[i],'score:',scores[i],class_name)
-                #if scores[i]>0.7:
-                #    c=get_color('red')
-                #elif scores[i]>0.1:
-                #    c=get_color('blue')
-                #else:
-                #    c=get_color('gray')
-                #ymin,xmin,ymax,xmax = boxes[i]
-                #top = int(im_height*ymin)
-                #left=int(im_width*xmin)
-                #bottom=int(im_height*ymax)
-                #right=int(im_width*xmax)
-                (top,right,bottom,left)=face_location;
-                cv2.rectangle(image, (left,top), (right,bottom), name_to_bgr('blue'),2)
-                cv2.putText(image, face_names[i], (left,bottom), font,font_scale, (255,255,255), thickness)
-#file_name="./test-data/img_report.jpg"
-file_name="./test-data/IMG_6003.jpg"
-image = cv2.imread(file_name)
-detect_face_tf(image)
+            image=resize_showimage(image,face_locations,face_names)
+            return image
 
-sz = calc_resize(image)
-image=cv2.resize(image,sz)
+#file_name="./test-data/img_report.jpg"
+#file_name="./test-data/IMG_5710.JPG" # k family
+#file_name="./test-data/12.jpg" # N family
+file_name="./test-data/IMG_4523.JPG" # family
+image = cv2.imread(file_name)
+image=detect_face_tf(image)
+
+#sz,ratio = calc_resize(image)
+#image=cv2.resize(image,sz)
 cv2.imshow("test",image)
 
 image = cv2.cvtColor(image,cv2.COLOR_BGR2RGB)
@@ -301,7 +271,128 @@ cv2.destroyAllWindows()
 # In[ ]:
 
 
+def recognize_movie(video_file,output_file=None):
+    # input
+    cap = cv2.VideoCapture(video_file)
+    video_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    video_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    interval,time_wait = fn.getInterval(fps)
+    show_size,show_ratio = calc_resize(None,(video_width,video_height))
 
+    # output
+    if output is not None:
+        if IN_COLAB:
+            fourcc = cv2.VideoWriter_fourcc(*"MJPG")
+        else:
+            fourcc = cv2.VideoWriter_fourcc(*'DIVX')
+        writer = cv2.VideoWriter(os.path.join(OUT_DIR,output), fourcc, fps, (width, height))
+    else:
+        writer = None
+
+    # ready for tensorflow
+    detection_graph = tf.Graph()
+    with detection_graph.as_default():
+        od_graph_def = tf.GraphDef()
+        with tf.gfile.GFile(PATH_TO_CKPT,'rb') as fid:
+            serialized_graph = fid.read()
+            od_graph_def.ParseFromString(serialized_graph)
+            tf.import_graph_def(od_graph_def, name='')
+        
+    with detection_graph.as_default():
+        config = tf.ConfigProto()
+        config.gpu_options.allow_growth = True
+        with tf.Session(graph=detection_graph, config=config) as sess:
+            while cap.isOpened():
+                ret,frame = cap.read()
+                if not ret:
+                    cap.release()
+                    break
+                face_locations = detect(frame,detection_graph,sess)
+                face_names=recognize(frame,face_locations)
+                if writer is not None:
+                    write_image=resize_showimage(frame,face_locations,face_names,(video_width,video_height),1.0)
+                    writer.write(write_image)
+
+
+            cap.release()
+
+
+# In[22]:
+
+
+# the original source from web
+def origin_proc():
+    cap = cv2.VideoCapture('./gassou_30sec_large.mp4')
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    interval,time_wait = fn.getInterval(fps)
+    out = None
+    print('w:',width,'h:',height)
+
+    detection_graph = tf.Graph()
+    with detection_graph.as_default():
+        od_graph_def = tf.GraphDef()
+        with tf.gfile.GFile(PATH_TO_CKPT,'rb') as fid:
+            serialized_graph = fid.read()
+            od_graph_def.ParseFromString(serialized_graph)
+            tf.import_graph_def(od_graph_def, name='')
+        
+    with detection_graph.as_default():
+        config = tf.ConfigProto()
+        config.gpu_options.allow_growth = True
+        with tf.Session(graph=detection_graph, config=config) as sess:
+            frame_num = 1490
+            while frame_num:
+                frame_num-=1
+                ret, image = cap.read()
+                if ret == 0:
+                    break
+                if out is None:
+                    #[h,w] = image.shape[:2]
+                    fourcc = cv2.VideoWriter_fourcc(*'DIVX')
+                    #out = cv2.VideoWriter("./media/test_out.avi", 0,25.0, (w,h))
+                    out = cv2.VideoWriter("./media/test_out.avi", fourcc, fps, (width, height))
+
+                image_np = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            
+                image_np_expanded = np.expand_dims(image_np,axis=0)
+                image_tensor = detection_graph.get_tensor_by_name('image_tensor:0')
+            
+                boxes = detection_graph.get_tensor_by_name('detection_boxes:0')
+            
+                scores = detection_graph.get_tensor_by_name('detection_scores:0')
+                classes = detection_graph.get_tensor_by_name('detection_classes:0')
+                num_detections = detection_graph.get_tensor_by_name('num_detections:0')
+            
+                start_time = time.time()
+                (boxes, scores, classes, num_detections) = sess.run(
+                    [boxes,scores,classes,num_detections],
+                    feed_dict={image_tensor: image_np_expanded}
+                )
+                elapsed_time = time.time() - start_time
+                #print('inteference time cost: {}'.format(elapsed_time))
+            
+                vis_util.visualize_boxes_and_labels_on_image_array(
+                    image,
+                    np.squeeze(boxes),
+                    np.squeeze(classes).astype(np.int32),
+                    np.squeeze(scores),
+                    category_index,
+                    use_normalized_coordinates=True,
+                    line_thickness=2
+                )
+                out.write(image)
+                image=cv2.resize(image,(960,540))
+                cv2.imshow("detect_by_tensorflow",image)
+                k=cv2.waitKey(time_wait) & 0xFF
+                if k==27:
+                    break;
+
+            cv2.destroyAllWindows()
+            cap.release()
+            out.release()
 
 
 # In[ ]:
