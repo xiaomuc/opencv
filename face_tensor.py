@@ -3,7 +3,7 @@
 
 # # face detection using Tensorflow
 
-# In[1]:
+# In[31]:
 
 
 import sys
@@ -40,6 +40,8 @@ except:
     DRIVE_ROOT='./'
 PATH_TO_CKPT = os.path.join(DRIVE_ROOT,'model/frozen_inference_graph_face.pb')
 PATH_TO_LABELS = os.path.join(DRIVE_ROOT,'protos/face_label_map.pbtxt')
+DIR_KNOWN_FACE = os.path.join(DRIVE_ROOT,'known_face/')
+OUT_DIR = os.path.join(DRIVE_ROOT,'media/')
 
 NUM_CLASSES = 2
 
@@ -80,31 +82,34 @@ def scan_known_faces(known_people_folder):
 
     return known_face_names, known_face_encodings
 
-scan_known_faces('./known_face/')            
+scan_known_faces(DIR_KNOWN_FACE)            
 print(known_face_names)
 
 
-# In[28]:
+# In[32]:
 
 
 font = cv2.FONT_HERSHEY_PLAIN
 font_scale = 1.2
 thickness = 2
 
-def calc_resize(image,size=None):
+def calc_resize(image,size=None,DEBUG=False):
     if size is None:
         im_height,im_width = image.shape[:2]
     else:
         (im_width,im_height) = size
-    print('w',im_width,'h',im_height)
+    if DEBUG:
+        print('w',im_width,'h',im_height)
     if im_height>disp_height or im_width>disp_width:
         ratio =min(disp_height/im_height,disp_width/im_width)
-        print('r',ratio)
+        if DEBUG:
+            print('r',ratio)
         im_height=int(im_height*ratio)
         im_width=int(im_width*ratio)
     else:
         ratio=1
-    print('w',im_width,'h',im_height)
+    if DEBUG:
+        print('w',im_width,'h',im_height)
     return (im_width,im_height),ratio
 
 def recognize(image,face_locations,threshold=0.6):
@@ -155,14 +160,21 @@ def boxes_to_face_locations(boxes,scores,image_height,image_width,threshold=0.7)
     #print('face_locations',len(face_locations))
     return face_locations
 
-def resize_showimage(in_image,face_locations,face_names,size=None,ratio=None):
+def resize_showimage(in_image,face_locations,face_names,size=None,ratio=None,DEBUG=False,time_stamp=None):
     if ratio is None or size is None:
-        size,ratio = calc_resize(image)
-    print(size,ratio)
+        size,ratio = calc_resize(in_image)
+    if DEBUG:
+        print(size,ratio)
     image=cv2.resize(in_image,size)
     b_bgr=name_to_bgr('blue')
     w_bgr=name_to_bgr('white')
     r_bgr=name_to_bgr('red')
+    l_bgr=name_to_bgr('lime')
+    if time_stamp is not None:
+        t_size = cv2.getTextSize(time_stamp,font,font_scale,thickness)
+        t_h=t_size[0][1]
+        cv2.putText(image, time_stamp, (0,t_h), font,font_scale, l_bgr, thickness)
+
     for i in range(len(face_locations)):
         face_location=face_locations[i]
         (top,right,bottom,left)=face_location;
@@ -186,7 +198,7 @@ def resize_showimage(in_image,face_locations,face_names,size=None,ratio=None):
     return image
 
 
-# In[ ]:
+# In[28]:
 
 
 def detect(image,detection_graph,sess):
@@ -205,7 +217,7 @@ def detect(image,detection_graph,sess):
         feed_dict={image_tensor: image_np_expanded}
     )
     elapsed_time = time.time() - start_time
-    print('inteference time cost: {}'.format(elapsed_time))
+    #print('inteference time cost: {}'.format(elapsed_time))
     boxes=np.squeeze(boxes)
     scores=np.squeeze(scores)
     classes=np.squeeze(classes)
@@ -268,25 +280,32 @@ cv2.waitKey(0) & 0xFF
 cv2.destroyAllWindows()
 
 
-# In[ ]:
+# In[38]:
 
 
-def recognize_movie(video_file,output_file=None):
+def recognize_movie(video_file,output_file=None,view=True):
     # input
     cap = cv2.VideoCapture(video_file)
     video_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     video_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS)
+    frame_count=0
+    i_fps=round(fps)
+    #print('fps',i_fps)
     interval,time_wait = fn.getInterval(fps)
     show_size,show_ratio = calc_resize(None,(video_width,video_height))
 
     # output
-    if output is not None:
+    if output_file is not None:
+        bd=os.path.splitext(os.path.basename(video_file))[0]
+        cap_dir=os.path.join(OUT_DIR,bd)
+        os.makedirs(cap_dir,exist_ok=True)
+        output_file=os.path.join(OUT_DIR,bd+'.avi')
         if IN_COLAB:
             fourcc = cv2.VideoWriter_fourcc(*"MJPG")
         else:
             fourcc = cv2.VideoWriter_fourcc(*'DIVX')
-        writer = cv2.VideoWriter(os.path.join(OUT_DIR,output), fourcc, fps, (width, height))
+        writer = cv2.VideoWriter(output_file, fourcc, fps, (video_width, video_height))
     else:
         writer = None
 
@@ -308,14 +327,36 @@ def recognize_movie(video_file,output_file=None):
                 if not ret:
                     cap.release()
                     break
+                frame_count+=1
+                
+                s,fr=divmod(frame_count,i_fps)
+                m,s=divmod(s,60)
+                ts='{:02d}:{:02d}.{:d}/{:d}'.format(m,s,fr,i_fps)
                 face_locations = detect(frame,detection_graph,sess)
                 face_names=recognize(frame,face_locations)
                 if writer is not None:
-                    write_image=resize_showimage(frame,face_locations,face_names,(video_width,video_height),1.0)
+                    write_image=resize_showimage(frame,face_locations,face_names,(video_width,video_height),1.0,time_stamp=ts)
                     writer.write(write_image)
-
-
+                    if 'Toma' in face_names:
+                        cap_name='{:02d}m_{:02d}s_{:d}'.format(m,s,fr)+'.png'
+                        print(ts,cap_name)
+                        cv2.imwrite(os.path.join(cap_dir,cap_name),write_image)
+                if not IN_COLAB and view:
+                    img = resize_showimage(frame,face_locations,face_names,show_size,show_ratio,time_stamp=ts)
+                    cv2.imshow("detect_by_tensorflow",img)
+                    k=cv2.waitKey(time_wait) & 0xFF
+                    if k==27:
+                        break;
+            cv2.destroyAllWindows()
             cap.release()
+v_file=os.path.join(DRIVE_ROOT,'gassou_15sec_small.mp4')
+#v_file=os.path.join(DRIVE_ROOT,'gassou_15sec_large.mp4')
+#o_file = './media/out_15_S.avi'
+
+start_time = time.time()
+recognize_movie(v_file,True,view=True)
+elapsed_time = time.time() - start_time
+print('elapsed time: {}'.format(elapsed_time))
 
 
 # In[22]:
