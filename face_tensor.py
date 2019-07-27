@@ -3,7 +3,7 @@
 
 # # face detection using Tensorflow
 
-# In[25]:
+# In[43]:
 
 
 import sys
@@ -14,6 +14,7 @@ import matplotlib.pylab as plt
 import tensorflow as tf
 import cv2
 import shutil
+import tqdm
 #import functions as fn
 
 sys.path.append("./")
@@ -67,7 +68,7 @@ def load_image_into_numpy_array(image):
     return np.array(image.getdata()).reshape((im_height,im_width, 3)).astype(np.uint8)
 
 
-# In[2]:
+# In[39]:
 
 
 import face_recognition
@@ -99,7 +100,7 @@ scan_known_faces(DIR_KNOWN_FACE)
 print(known_face_names)
 
 
-# In[30]:
+# In[44]:
 
 
 font = cv2.FONT_HERSHEY_PLAIN
@@ -108,7 +109,7 @@ thickness = 2
 def getInterval(fps):
     interval =1.0/fps
     time_wait = (int)(interval * 1000.0)
-    print('interval: ',interval,'time_wait: ',time_wait)
+    #print('interval: ',interval,'time_wait: ',time_wait)
     return interval,time_wait
   
 def calc_resize(image,size=None,DEBUG=False):
@@ -221,7 +222,7 @@ def resize_showimage(in_image,face_locations,face_names,face_scores,size=None,ra
     return image
 
 
-# In[ ]:
+# In[41]:
 
 
 def detect(image,detection_graph,sess):
@@ -306,18 +307,21 @@ for file_name in file_names:
 cv2.destroyAllWindows()
 
 
-# In[36]:
+# In[47]:
 
 
 def recognize_movie(video_file,output_file=None,view=True):
+    print(video_file)
     # input
     cap = cv2.VideoCapture(video_file)
     video_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     video_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    video_frame = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) # フレーム数を取得する
     fps = cap.get(cv2.CAP_PROP_FPS)
     frame_count=0
     i_fps=round(fps)
     #print('fps',i_fps)
+    print(video_frame)
     interval,time_wait = getInterval(fps)
     show_size,show_ratio = calc_resize(None,(video_width,video_height))
     counter = 0
@@ -351,7 +355,8 @@ def recognize_movie(video_file,output_file=None,view=True):
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
         with tf.Session(graph=detection_graph, config=config) as sess:
-            while cap.isOpened():
+            for i in tqdm(range(video_frame)):
+#            while cap.isOpened():
                 ret,frame = cap.read()
                 if not ret:
                     cap.release()
