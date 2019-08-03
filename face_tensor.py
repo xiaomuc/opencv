@@ -3,7 +3,7 @@
 
 # # face detection using Tensorflow
 
-# In[43]:
+# In[3]:
 
 
 import sys
@@ -14,7 +14,7 @@ import matplotlib.pylab as plt
 import tensorflow as tf
 import cv2
 import shutil
-import tqdm
+from tqdm import tqdm
 #import functions as fn
 
 sys.path.append("./")
@@ -68,7 +68,7 @@ def load_image_into_numpy_array(image):
     return np.array(image.getdata()).reshape((im_height,im_width, 3)).astype(np.uint8)
 
 
-# In[39]:
+# In[4]:
 
 
 import face_recognition
@@ -100,7 +100,7 @@ scan_known_faces(DIR_KNOWN_FACE)
 print(known_face_names)
 
 
-# In[44]:
+# In[32]:
 
 
 font = cv2.FONT_HERSHEY_PLAIN
@@ -221,8 +221,31 @@ def resize_showimage(in_image,face_locations,face_names,face_scores,size=None,ra
           cv2.putText(image, s, (left,bottom + text_height), font,font_scale, w_bgr, thickness)
     return image
 
+def get_face_images(in_image,face_locations,face_names,face_scores):
+    face_images=[]
+    im_height,im_width = in_image.shape[:2]
+    w_bgr=name_to_bgr('white')
+    for i in range(len(face_locations)):
+        face_location=face_locations[i]
+        face_name=face_names[i]
+        (top,right,bottom,left)=face_location;
+        width=right-left
+        half_w=int(width/2)
+        height=bottom-top
+        half_h=int(height/2)
+        
+        top=max(0,top-half_h)
+        bottom=min(bottom+half_h,im_height-1)
+        left=max(0,left-half_w)
+        right=min(right+half_w,im_width-1)
+        #print("index{},(l,t,r,b):=({},{},{},{}),size:{},{}".format(i,left,top,right,bottom,right-left,bottom-top))
+        img=image[top : bottom, left : right]
+        img=cv2.putText(img, face_name, (left,bottom), font,font_scale, w_bgr, thickness)
+        face_images.append(img)
+    return face_images
 
-# In[41]:
+
+# In[33]:
 
 
 def detect(image,detection_graph,sess):
@@ -259,32 +282,11 @@ def detect_face_tf(image):
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
         with tf.Session(graph=detection_graph, config=config) as sess:
-            #image_np = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            
-            #image_np_expanded = np.expand_dims(image_np,axis=0)
-            #image_tensor = detection_graph.get_tensor_by_name('image_tensor:0')
-            
-            #boxes = detection_graph.get_tensor_by_name('detection_boxes:0')
-            #scores = detection_graph.get_tensor_by_name('detection_scores:0')
-            #classes = detection_graph.get_tensor_by_name('detection_classes:0')
-            #num_detections = detection_graph.get_tensor_by_name('num_detections:0')
-            #start_time = time.time()
-            #(boxes, scores, classes, num_detections) = sess.run(
-            #    [boxes,scores,classes,num_detections],
-            #    feed_dict={image_tensor: image_np_expanded}
-            #)
-            #elapsed_time = time.time() - start_time
-            #print('inteference time cost: {}'.format(elapsed_time))
-            #boxes=np.squeeze(boxes)
-            #scores=np.squeeze(scores)
-            #classes=np.squeeze(classes)
-            #im_height,im_width = image.shape[:2]
-            
-            #face_locations = boxes_to_face_locations(boxes,scores,im_height,im_width)
             face_locations = detect(image,detection_graph,sess)
             face_names,face_scores=recognize(image,face_locations,threshold=0.45)
+            face_images=get_face_images(image,face_locations,face_names,face_scores)
             image=resize_showimage(image,face_locations,face_names,face_scores)
-            return image
+            return image,face_images
 
 #file_name="./test-data/img_report.jpg"
 file_name="./test-data/IMG_5710.JPG" # k family
@@ -294,20 +296,42 @@ test_dir=os.path.join(DRIVE_ROOT,"test-data")
 file_names=os.listdir(test_dir)
 for file_name in file_names:
     image = cv2.imread(os.path.join(test_dir,file_name))
-    image=detect_face_tf(image)
-    if not IN_COLAB:
-      cv2.imshow("test",image)
-      k=cv2.waitKey(0) & 0xFF
-      if k==27:
-        break;
+    image,face_images=detect_face_tf(image)
+    # if not IN_COLAB:
+    #  cv2.imshow("test",image)
+    #  k=cv2.waitKey(0) & 0xFF
+    #  if k==27:
+    #    break;
 
-    image = cv2.cvtColor(image,cv2.COLOR_BGR2RGB)
-    plt.imshow(image)
+    #image = cv2.cvtColor(image,cv2.COLOR_BGR2RGB)
+    #plt.imshow(image)
+    #plt.show()
+    n=len(face_images)
+    cols=5
+    if n<=cols:
+        cols=n
+        rows=1
+    else:
+        cols=5
+        rows=int(1+n/3)
+    fig=plt.figure(figsize=(cols*3,rows*3))
+    r=1
+    c=1
+    i=1
+    for image in face_images:
+        img = cv2.cvtColor(image,cv2.COLOR_BGR2RGB)
+        ax = fig.add_subplot(rows,cols,i)
+        ax.imshow(img)
+        c+=1
+        if c> cols:
+            c=0
+            r+=1
+        i+=1
     plt.show()
 cv2.destroyAllWindows()
 
 
-# In[47]:
+# In[19]:
 
 
 def recognize_movie(video_file,output_file=None,view=True):
@@ -367,14 +391,15 @@ def recognize_movie(video_file,output_file=None,view=True):
                 m,s=divmod(s,60)
                 ts='{:02d}:{:02d}.{:d}/{:d}'.format(m,s,fr,i_fps)
                 face_locations = detect(frame,detection_graph,sess)
-                face_names,face_scores=recognize(frame,face_locations,threshold=0.4)
+                face_names,face_scores=recognize(frame,face_locations,threshold=0.45)
                 if writer is not None:
                     write_image=resize_showimage(frame,face_locations,face_names,face_scores,(video_width,video_height),1.0,time_stamp=ts)
                     writer.write(write_image)
                     if 'Toma' in face_names:
+                        index = face_names.index('Toma')
                         counter += 1
                         cap_name='{:02d}m_{:02d}s_{:d}'.format(m,s,fr)+'.png'
-                        print(counter,ts,cap_name)
+                        print(counter,ts,'[{}]'.format(face_scores[index]))
                         cv2.imwrite(os.path.join(cap_dir,cap_name),write_image)
                 if not IN_COLAB and view:
                     img = resize_showimage(frame,face_locations,face_names,face_scores,show_size,show_ratio,time_stamp=ts)
@@ -385,15 +410,17 @@ def recognize_movie(video_file,output_file=None,view=True):
             cv2.destroyAllWindows()
             cap.release()
 #v_file=os.path.join(DRIVE_ROOT,'gassou_15sec_small.mp4')
-#v_file=os.path.join(DRIVE_ROOT,'gassou_15sec_large.mp4')
+v_file=os.path.join(DRIVE_ROOT,'gassou_15sec_large.mp4')
 #v_file=os.path.join(DRIVE_ROOT,'gassou_full_large.mp4')
-v_file=os.path.join(DRIVE_ROOT,'gassou_full_small.mp4')
+#v_file=os.path.join(DRIVE_ROOT,'gassou_full_small.mp4')
 #o_file = './media/out_15_S.avi'
 
 start_time = time.time()
 recognize_movie(v_file,True,view=True)
-elapsed_time = time.time() - start_time
-print('elapsed time: {}'.format(elapsed_time))
+elapsed_time = int(time.time() - start_time)
+m, s =divmod(elapsed_time,60)
+
+print('elapsed time: {}:{}'.format(m,s))
 
 
 # In[ ]:
@@ -473,7 +500,7 @@ def origin_proc():
             out.release()
 
 
-# In[11]:
+# In[ ]:
 
 
 get_ipython().system('ls tensorflow-face-detection/utils -l')
